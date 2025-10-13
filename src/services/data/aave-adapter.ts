@@ -1,4 +1,4 @@
-import { Contract } from 'ethers'
+import { Contract, getAddress } from 'ethers'
 import { rpcClient } from './rpc-client.js'
 import { createComponentLogger } from '../../utils/logger.js'
 import type { Chain, Position } from '../../types/index.js'
@@ -39,7 +39,9 @@ export class AaveAdapter {
         throw new Error(`No Aave pool configured for chain: ${chain}`)
       }
 
-      const data = await pool.getUserAccountData(userAddress)
+      // Normalize address to checksummed format
+      const checksummedAddress = getAddress(userAddress)
+      const data = await pool.getUserAccountData(checksummedAddress)
 
       // Skip if user has no position
       if (data.totalCollateralBase === 0n && data.totalDebtBase === 0n) {

@@ -23,7 +23,7 @@ model User {
 
 model Position {
   id                    String   @id @default(uuid())
-  userId                String
+  userAddress           String
   chain                 String   // base, arbitrum
   protocol              String   // aave, compound
   collateralToken       String
@@ -36,16 +36,16 @@ model Position {
   liquidationThreshold  Float
   lastUpdated           DateTime @default(now())
 
-  user                  User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user                  User     @relation(fields: [userAddress], references: [address], onDelete: Cascade)
 
-  @@index([userId])
+  @@index([userAddress])
   @@index([chain])
   @@index([healthFactor])
 }
 
 model Action {
   id              String    @id @default(uuid())
-  userId          String
+  userAddress     String
   type            String    // rebalance, supply, withdraw, repay
   sourceChain     String?
   destChain       String?
@@ -58,9 +58,9 @@ model Action {
   createdAt       DateTime  @default(now())
   completedAt     DateTime?
 
-  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user            User      @relation(fields: [userAddress], references: [address], onDelete: Cascade)
 
-  @@index([userId])
+  @@index([userAddress])
   @@index([status])
   @@index([createdAt])
 }

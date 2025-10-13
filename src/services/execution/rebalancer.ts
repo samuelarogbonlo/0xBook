@@ -48,7 +48,7 @@ export class Rebalancer {
       // Step 3: Create action record
       const action = await db.action.create({
         data: {
-          userId,
+          userAddress: userId,
           type: 'rebalance',
           sourceChain,
           destChain,

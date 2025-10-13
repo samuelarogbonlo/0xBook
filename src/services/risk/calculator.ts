@@ -54,13 +54,16 @@ export class RiskCalculator {
   selectSourceChain(positions: Position[], targetChain: Chain): Chain | null {
     const otherChainPositions = positions.filter((p) => p.chain !== targetChain)
 
+    if (otherChainPositions.length === 0) {
+      return null
+    }
+
     // Find position with highest health factor (safest to withdraw from)
-    const safest = otherChainPositions.reduce(
-      (max, pos) => (pos.healthFactor > max.healthFactor ? pos : max),
-      otherChainPositions[0]
+    const safest = otherChainPositions.reduce((max, pos) =>
+      pos.healthFactor > max.healthFactor ? pos : max
     )
 
-    return safest?.healthFactor > 2.0 ? safest.chain : null
+    return safest.healthFactor > 2.0 ? safest.chain : null
   }
 }
 

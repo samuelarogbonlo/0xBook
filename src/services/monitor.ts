@@ -91,7 +91,7 @@ export class PositionMonitor {
         where: { id: position.id },
         create: {
           id: position.id,
-          userId: position.userId,
+          userAddress: position.userId,
           chain: position.chain,
           protocol: position.protocol,
           collateralToken: position.collateral.token,

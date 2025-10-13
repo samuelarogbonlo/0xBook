@@ -62,7 +62,7 @@ router.get('/', async (req, res) => {
     }
 
     const actions = await db.action.findMany({
-      where: { userId: userAddress },
+      where: { userAddress },
       orderBy: { createdAt: 'desc' },
       take: limit,
     })

@@ -17,7 +17,7 @@ router.get('/', async (req, res) => {
 
     // Fetch from database (cached positions)
     const positions = await db.position.findMany({
-      where: { userId: userAddress },
+      where: { userAddress },
       orderBy: { lastUpdated: 'desc' },
     })
 
