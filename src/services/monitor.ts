@@ -1,8 +1,9 @@
 import { aaveAdapter } from './data/aave-adapter.js'
 import { riskCalculator } from './risk/calculator.js'
+import { rebalancer } from './execution/rebalancer.js'
 import { db } from '../utils/db.js'
 import { createComponentLogger } from '../utils/logger.js'
-import type { Position, RiskTolerance } from '../types/index.js'
+import type { Position, RiskTolerance, RiskAssessment } from '../types/index.js'
 
 const logger = createComponentLogger('monitor')
 
@@ -66,22 +67,106 @@ export class PositionMonitor {
 
       // Assess risk for each position
       for (const position of positions) {
-        const assessment = riskCalculator.assessRisk(position, riskTolerance)
+        const assessment = riskCalculator.assessRisk(position, riskTolerance, positions)
 
         if (assessment.action === 'URGENT_REBALANCE') {
           logger.warn(
             `URGENT: ${userAddress} on ${position.chain} - HF: ${position.healthFactor.toFixed(2)}`
           )
-          // TODO: Trigger rebalance execution
+          await this.handleUrgentRebalance(userAddress, position, assessment)
         } else if (assessment.action === 'PREVENTIVE_REBALANCE') {
           logger.info(
             `Warning: ${userAddress} on ${position.chain} - HF: ${position.healthFactor.toFixed(2)}`
           )
-          // TODO: Consider preventive action
+          await this.handlePreventiveRebalance(userAddress, position, assessment)
         }
       }
     } catch (error) {
       logger.error(`Failed to monitor user ${userAddress}`, error)
+    }
+  }
+
+  private async handleUrgentRebalance(
+    userAddress: string,
+    position: Position,
+    assessment: RiskAssessment
+  ) {
+    try {
+      if (!assessment.sourceChain || !assessment.requiredCollateralUSD || assessment.requiredCollateralUSD <= 0) {
+        logger.error(
+          `Cannot execute urgent rebalance: missing source chain or collateral amount (USD=${assessment.requiredCollateralUSD})`
+        )
+        return
+      }
+
+      // Check for recent duplicate actions to prevent spam
+      const recentAction = await db.action.findFirst({
+        where: {
+          userAddress,
+          type: 'rebalance',
+          destChain: position.chain,
+          createdAt: {
+            gte: new Date(Date.now() - 5 * 60 * 1000), // 5 minutes
+          },
+        },
+      })
+
+      if (recentAction) {
+        logger.debug(`Skipping duplicate urgent rebalance for ${userAddress}`)
+        return
+      }
+
+      logger.info(`Executing urgent rebalance for ${userAddress}`)
+
+      await rebalancer.executeAutoRebalance({
+        userId: userAddress,
+        targetPosition: position,
+        sourceChain: assessment.sourceChain,
+        requiredCollateralUSD: assessment.requiredCollateralUSD,
+      })
+    } catch (error) {
+      logger.error(`Urgent rebalance failed for ${userAddress}`, error)
+    }
+  }
+
+  private async handlePreventiveRebalance(
+    userAddress: string,
+    position: Position,
+    assessment: RiskAssessment
+  ) {
+    try {
+      if (!assessment.sourceChain || !assessment.requiredCollateralUSD || assessment.requiredCollateralUSD <= 0) {
+        logger.debug(`Preventive rebalance not needed: no source chain available`)
+        return
+      }
+
+      // Check for recent duplicate actions
+      const recentAction = await db.action.findFirst({
+        where: {
+          userAddress,
+          type: 'rebalance',
+          destChain: position.chain,
+          createdAt: {
+            gte: new Date(Date.now() - 10 * 60 * 1000), // 10 minutes
+          },
+        },
+      })
+
+      if (recentAction) {
+        logger.debug(`Skipping duplicate preventive rebalance for ${userAddress}`)
+        return
+      }
+
+      logger.info(`Executing preventive rebalance for ${userAddress}`)
+
+      await rebalancer.executeAutoRebalance({
+        userId: userAddress,
+        targetPosition: position,
+        sourceChain: assessment.sourceChain,
+        requiredCollateralUSD: assessment.requiredCollateralUSD,
+      })
+    } catch (error) {
+      logger.error(`Preventive rebalance failed for ${userAddress}`, error)
     }
   }
 

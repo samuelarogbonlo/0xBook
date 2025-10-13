@@ -3,6 +3,7 @@ import { getEnv } from './utils/env.js'
 import { logger } from './utils/logger.js'
 import { connectDB, disconnectDB } from './utils/db.js'
 import { rpcClient } from './services/data/rpc-client.js'
+import { availClient } from './services/execution/avail-client.js'
 import { positionMonitor } from './services/monitor.js'
 import positionsRouter from './api/positions.js'
 import policyRouter from './api/policy.js'
@@ -17,6 +18,10 @@ async function main() {
   // Health check RPC providers
   const rpcHealth = await rpcClient.healthCheck()
   logger.info('RPC health check', rpcHealth)
+
+  // Initialize Avail Nexus SDK
+  await availClient.initialize()
+  logger.info('Avail Nexus SDK initialized')
 
   // Initialize Express server
   const app = express()

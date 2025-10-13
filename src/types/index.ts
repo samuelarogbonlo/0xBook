@@ -36,7 +36,7 @@ export interface RiskAssessment {
   action: 'MONITOR' | 'PREVENTIVE_REBALANCE' | 'URGENT_REBALANCE'
   healthFactor: number
   targetHealthFactor: number
-  requiredCollateral?: bigint
+  requiredCollateralUSD?: number
   sourceChain?: Chain
   destChain?: Chain
 }

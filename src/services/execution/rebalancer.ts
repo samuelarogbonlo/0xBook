@@ -1,7 +1,8 @@
-import { availClient } from './avail-stub.js'
+import { availClient } from './avail-client.js'
+import { getDefaultBridgeToken, getTokenMetadata } from '../../config/tokens.js'
 import { db } from '../../utils/db.js'
 import { createComponentLogger } from '../../utils/logger.js'
-import type { Chain } from '../../types/index.js'
+import type { Chain, Position } from '../../types/index.js'
 
 const logger = createComponentLogger('rebalancer')
 
@@ -13,6 +14,15 @@ interface RebalanceParams {
   amount: bigint
 }
 
+interface AutoRebalanceParams {
+  userId: string
+  targetPosition: Position
+  sourceChain: Chain
+  requiredCollateralUSD: number
+}
+
+const MIN_TRANSFER_AMOUNT_USD = 1 // Avoid dust transfers
+
 export class Rebalancer {
   async executeRebalance(params: RebalanceParams): Promise<string> {
     const { userId, sourceChain, destChain, token, amount } = params
@@ -22,7 +32,7 @@ export class Rebalancer {
     )
 
     try {
-      // Step 1: Estimate costs
+      // Step 1: Estimate costs (validates token support)
       const feeEstimate = await availClient.estimateFee({
         sourceChain,
         destChain,
@@ -72,6 +82,7 @@ export class Rebalancer {
         where: { id: action.id },
         data: {
           transferId: transfer.transferId,
+          txHash: transfer.hash,
         },
       })
 
@@ -85,12 +96,59 @@ export class Rebalancer {
         },
       })
 
-      // TODO: Monitor transfer status and update on completion
-      // For now, we assume success in stub mode
-
       return action.id
     } catch (error) {
       logger.error(`Rebalance failed for ${userId}`, error)
+      throw error
+    }
+  }
+
+  async executeAutoRebalance(params: AutoRebalanceParams): Promise<string> {
+    const { userId, targetPosition, sourceChain, requiredCollateralUSD } = params
+
+    if (requiredCollateralUSD < MIN_TRANSFER_AMOUNT_USD) {
+      logger.debug(`Skipping rebalance for ${userId}: delta ${requiredCollateralUSD} USD below minimum`)
+      return 'skipped'
+    }
+
+    const tokenMeta = this.getBridgeToken(targetPosition)
+
+    const amount = this.convertUsdToTokenAmount(requiredCollateralUSD, tokenMeta.decimals, tokenMeta.priceUSD)
+
+    if (amount <= 0n) {
+      throw new Error('Calculated token amount is zero')
+    }
+
+    const sourceAddress = tokenMeta.addresses[sourceChain]
+    const destAddress = tokenMeta.addresses[targetPosition.chain]
+
+    if (!sourceAddress || !destAddress) {
+      throw new Error(`Token ${tokenMeta.symbol} not configured for ${sourceChain}/${targetPosition.chain}`)
+    }
+
+    logger.info(
+      `Auto-rebalancing ${userId}: ${requiredCollateralUSD.toFixed(
+        2
+      )} USD (~${amount.toString()} units of ${tokenMeta.symbol}) from ${sourceChain} to ${targetPosition.chain}`
+    )
+
+    try {
+      // Execute rebalance
+      const actionId = await this.executeRebalance({
+        userId,
+        sourceChain,
+        destChain: targetPosition.chain,
+        token: tokenMeta.symbol,
+        amount,
+      })
+
+      if (actionId !== 'skipped') {
+        logger.info(`Auto-rebalance action created: ${actionId}`)
+      }
+
+      return actionId
+    } catch (error) {
+      logger.error(`Auto-rebalance failed for ${userId}`, error)
       throw error
     }
   }
@@ -129,6 +187,32 @@ export class Rebalancer {
     }
 
     return action
+  }
+
+  private getBridgeToken(position: Position) {
+    const metadata = getTokenMetadata(position.collateral.token)
+    if (metadata?.addresses[position.chain]) {
+      return metadata
+    }
+    return getDefaultBridgeToken()
+  }
+
+  private convertUsdToTokenAmount(usd: number, decimals: number, priceUSD: number): bigint {
+    if (priceUSD <= 0) {
+      throw new Error('Invalid token price')
+    }
+
+    const amountInTokens = usd / priceUSD
+    const baseDecimals = Math.min(decimals, 12)
+    const scale = BigInt(10) ** BigInt(baseDecimals)
+    const multiplier = BigInt(Math.round(amountInTokens * Number(scale)))
+    const extraDecimals = decimals - baseDecimals
+
+    if (extraDecimals > 0) {
+      return multiplier * (BigInt(10) ** BigInt(extraDecimals))
+    }
+
+    return multiplier
   }
 }
 

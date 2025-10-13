@@ -7,22 +7,46 @@ const RISK_THRESHOLDS = {
 } as const
 
 export class RiskCalculator {
-  assessRisk(position: Position, riskTolerance: RiskTolerance): RiskAssessment {
+  assessRisk(position: Position, riskTolerance: RiskTolerance, allPositions: Position[]): RiskAssessment {
     const thresholds = RISK_THRESHOLDS[riskTolerance]
 
     if (position.healthFactor < thresholds.critical) {
+      const sourceChain = this.selectSourceChain(allPositions, position.chain)
+      const requiredCollateralUSD = this.calculateRequiredCollateralUSD(
+        position.healthFactor,
+        thresholds.target,
+        position.collateral.valueUSD,
+        position.debt.valueUSD,
+        position.liquidationThreshold
+      )
+
       return {
         action: 'URGENT_REBALANCE',
         healthFactor: position.healthFactor,
         targetHealthFactor: thresholds.target,
+        requiredCollateralUSD: sourceChain ? requiredCollateralUSD : undefined,
+        sourceChain: sourceChain || undefined,
+        destChain: position.chain,
       }
     }
 
     if (position.healthFactor < thresholds.warning) {
+      const sourceChain = this.selectSourceChain(allPositions, position.chain)
+      const requiredCollateralUSD = this.calculateRequiredCollateralUSD(
+        position.healthFactor,
+        thresholds.target,
+        position.collateral.valueUSD,
+        position.debt.valueUSD,
+        position.liquidationThreshold
+      )
+
       return {
         action: 'PREVENTIVE_REBALANCE',
         healthFactor: position.healthFactor,
         targetHealthFactor: thresholds.target,
+        requiredCollateralUSD: sourceChain ? requiredCollateralUSD : undefined,
+        sourceChain: sourceChain || undefined,
+        destChain: position.chain,
       }
     }
 
@@ -33,13 +57,13 @@ export class RiskCalculator {
     }
   }
 
-  calculateRequiredCollateral(
+  calculateRequiredCollateralUSD(
     _currentHealth: number,
     targetHealth: number,
     collateralValue: number,
     debtValue: number,
     liquidationThreshold: number
-  ): bigint {
+  ): number {
     // HF = (collateral * LT) / debt
     // target_HF = (collateral + x) * LT / debt
     // x = (target_HF * debt / LT) - collateral
@@ -47,8 +71,7 @@ export class RiskCalculator {
     const requiredTotal = (targetHealth * debtValue) / liquidationThreshold
     const delta = requiredTotal - collateralValue
 
-    // Convert to smallest unit (assuming 18 decimals)
-    return BigInt(Math.ceil(delta * 1e18))
+    return Math.max(delta, 0)
   }
 
   selectSourceChain(positions: Position[], targetChain: Chain): Chain | null {
