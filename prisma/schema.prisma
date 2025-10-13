@@ -1,0 +1,79 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id              String    @id @default(uuid())
+  address         String    @unique
+  riskTolerance   String    @default("moderate") // conservative, moderate, aggressive
+  maxSpendDaily   String    // Stored as string (bigint)
+  enabled         Boolean   @default(true)
+  pyusdBalance    String    @default("0") // Stored as string (bigint)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  positions       Position[]
+  actions         Action[]
+}
+
+model Position {
+  id                    String   @id @default(uuid())
+  userId                String
+  chain                 String   // base, arbitrum
+  protocol              String   // aave, compound
+  collateralToken       String
+  collateralAmount      String   // Stored as string (bigint)
+  collateralValueUSD    Float
+  debtToken             String
+  debtAmount            String   // Stored as string (bigint)
+  debtValueUSD          Float
+  healthFactor          Float
+  liquidationThreshold  Float
+  lastUpdated           DateTime @default(now())
+
+  user                  User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([chain])
+  @@index([healthFactor])
+}
+
+model Action {
+  id              String    @id @default(uuid())
+  userId          String
+  type            String    // rebalance, supply, withdraw, repay
+  sourceChain     String?
+  destChain       String?
+  amount          String    // Stored as string (bigint)
+  costPYUSD       String    // Stored as string (bigint)
+  status          String    @default("pending") // pending, confirmed, failed
+  txHash          String?
+  transferId      String?   // Avail Nexus transfer ID
+  errorMessage    String?
+  createdAt       DateTime  @default(now())
+  completedAt     DateTime?
+
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([status])
+  @@index([createdAt])
+}
+
+model Log {
+  id              String   @id @default(uuid())
+  level           String   // error, warn, info, debug
+  component       String   // agent, rpc, risk-engine, executor
+  message         String
+  metadata        String?  // JSON string
+  timestamp       DateTime @default(now())
+
+  @@index([level])
+  @@index([component])
+  @@index([timestamp])
+}
