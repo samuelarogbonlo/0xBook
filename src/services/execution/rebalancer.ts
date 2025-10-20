@@ -3,6 +3,7 @@ import { getDefaultBridgeToken, getTokenMetadata } from '../../config/tokens.js'
 import { db } from '../../utils/db.js'
 import { createComponentLogger } from '../../utils/logger.js'
 import type { Chain, Position } from '../../types/index.js'
+import { formatPYUSD } from '../../config/fees.js'
 
 const logger = createComponentLogger('rebalancer')
 
@@ -40,7 +41,7 @@ export class Rebalancer {
         amount,
       })
 
-      logger.info(`Estimated fee: ${feeEstimate.fee.toString()} ${feeEstimate.feeToken}`)
+      logger.info(`Estimated fee: ${formatPYUSD(feeEstimate.fee)}`)
 
       // Step 2: Check user PYUSD balance
       const user = await db.user.findUnique({ where: { address: userId } })
@@ -51,7 +52,7 @@ export class Rebalancer {
       const pyusdBalance = BigInt(user.pyusdBalance)
       if (pyusdBalance < feeEstimate.fee) {
         throw new Error(
-          `Insufficient PYUSD balance. Required: ${feeEstimate.fee}, Available: ${pyusdBalance}`
+          `Insufficient PYUSD balance. Required: ${formatPYUSD(feeEstimate.fee)}, Available: ${formatPYUSD(pyusdBalance)}`
         )
       }
 

@@ -4,6 +4,7 @@ import type { Chain } from '../../types/index.js'
 import { getEnv } from '../../utils/env.js'
 import { getTokenMetadata } from '../../config/tokens.js'
 import type { TokenMetadata } from '../../config/tokens.js'
+import { calculateTotalFeePYUSD, formatPYUSD } from '../../config/fees.js'
 
 const logger = createComponentLogger('avail')
 
@@ -125,13 +126,16 @@ export class AvailNexusClient {
       const estimatedGas = 300000n
 
       const bridgeFee = parseUnits('0.001', 18)
-      const totalFee = gasPrice * estimatedGas + bridgeFee
+      const totalFeeETH = gasPrice * estimatedGas + bridgeFee
 
-      logger.debug(`Estimated fee: ${formatUnits(totalFee, 18)} ETH`)
+      // Calculate total fee in PYUSD (includes gas + service fee)
+      const totalFeePYUSD = calculateTotalFeePYUSD(totalFeeETH)
+
+      logger.debug(`Estimated fee: ${formatUnits(totalFeeETH, 18)} ETH → ${formatPYUSD(totalFeePYUSD)}`)
 
       return {
-        fee: totalFee,
-        feeToken: 'ETH',
+        fee: totalFeePYUSD,
+        feeToken: 'PYUSD',
       }
     } catch (error) {
       logger.error('Fee estimation failed', error)

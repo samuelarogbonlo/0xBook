@@ -22,6 +22,8 @@ const envSchema = z.object({
   PORT: z.string().default('3000'),
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
   LOG_LEVEL: z.enum(['error', 'warn', 'info', 'debug']).default('info'),
+  DEMO_MODE: z.enum(['true', 'false']).default('false'),
+  DEMO_WALLET: z.string().optional(),
 })
 
 export type Env = z.infer<typeof envSchema>

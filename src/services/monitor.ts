@@ -3,6 +3,7 @@ import { riskCalculator } from './risk/calculator.js'
 import { rebalancer } from './execution/rebalancer.js'
 import { db } from '../utils/db.js'
 import { createComponentLogger } from '../utils/logger.js'
+import { getEnv } from '../utils/env.js'
 import type { Position, RiskTolerance, RiskAssessment } from '../types/index.js'
 
 const logger = createComponentLogger('monitor')
@@ -67,7 +68,26 @@ export class PositionMonitor {
 
       // Assess risk for each position
       for (const position of positions) {
-        const assessment = riskCalculator.assessRisk(position, riskTolerance, positions)
+        let assessment = riskCalculator.assessRisk(position, riskTolerance, positions)
+
+        // Demo mode override: inject fake low health factor for demonstration
+        const env = getEnv()
+        if (env.DEMO_MODE === 'true' && env.DEMO_WALLET && userAddress.toLowerCase() === env.DEMO_WALLET.toLowerCase()) {
+          logger.info(`[DEMO MODE] Injecting fake low health factor for ${userAddress} on ${position.chain}`)
+
+          // Find source chain with collateral (must be different from current position)
+          const sourcePosition = positions.find(p => p.chain !== position.chain && p.collateral.valueUSD > 5)
+
+          if (sourcePosition) {
+            assessment = {
+              action: 'URGENT_REBALANCE',
+              healthFactor: 1.2, // Fake low HF
+              targetHealthFactor: 1.5, // Target to reach
+              sourceChain: sourcePosition.chain,
+              requiredCollateralUSD: 5.0, // Small amount for demo
+            }
+          }
+        }
 
         if (assessment.action === 'URGENT_REBALANCE') {
           logger.warn(

@@ -1,4 +1,5 @@
 import type { Position, RiskTolerance, RiskAssessment, Chain } from '../../types/index.js'
+import { assessRiskWithGBM, type GBMRiskAssessment } from './gbm-model.js'
 
 const RISK_THRESHOLDS = {
   conservative: { critical: 1.5, warning: 2.0, target: 2.5 },
@@ -7,6 +8,14 @@ const RISK_THRESHOLDS = {
 } as const
 
 export class RiskCalculator {
+  /**
+   * Assess risk with GBM liquidation probability model
+   * Returns enhanced assessment with probabilistic risk metrics
+   */
+  assessRiskWithGBM(position: Position, volatility: number = 0.5): GBMRiskAssessment {
+    return assessRiskWithGBM(position.healthFactor, volatility)
+  }
+
   assessRisk(position: Position, riskTolerance: RiskTolerance, allPositions: Position[]): RiskAssessment {
     const thresholds = RISK_THRESHOLDS[riskTolerance]
 
