@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { parseUnits, formatUnits } from 'ethers'
-import { calculateTotalFeePYUSD, formatPYUSD, SERVICE_FEE_PYUSD, ETH_TO_PYUSD_RATE } from '../fees.js'
+import { calculateTotalFeePYUSD, formatPYUSD, SERVICE_FEE_PYUSD, getEthToPyusdRate } from '../fees.js'
 
 describe('PYUSD Fee Calculation', () => {
   describe('calculateTotalFeePYUSD', () => {
@@ -70,7 +70,7 @@ describe('PYUSD Fee Calculation', () => {
     })
 
     it('should have correct ETH to PYUSD rate', () => {
-      expect(ETH_TO_PYUSD_RATE).toBe(2500n)
+      expect(getEthToPyusdRate()).toBe(2500n)
     })
   })
 

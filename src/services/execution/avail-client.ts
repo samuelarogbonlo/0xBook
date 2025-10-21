@@ -125,7 +125,8 @@ export class AvailNexusClient {
       const gasPrice = feeData.gasPrice || 0n
       const estimatedGas = 300000n
 
-      const bridgeFee = parseUnits('0.001', 18)
+      const env = getEnv()
+      const bridgeFee = parseUnits(env.AVAIL_BRIDGE_FEE_ETH, 18)
       const totalFeeETH = gasPrice * estimatedGas + bridgeFee
 
       // Calculate total fee in PYUSD (includes gas + service fee)
@@ -155,40 +156,61 @@ export class AvailNexusClient {
       throw new Error(`Token ${metadata.symbol} not deployed on ${params.sourceChain}`)
     }
 
-    try {
-      const signer = this.signers.get(params.sourceChain)
-      if (!signer) {
-        throw new Error('Bridge signing unavailable – set AGENT_PRIVATE_KEY')
+    // Retry configuration: 3 attempts with exponential backoff
+    const maxRetries = 3
+    let lastError: Error | null = null
+
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        const signer = this.signers.get(params.sourceChain)
+        if (!signer) {
+          throw new Error('Bridge signing unavailable – set AGENT_PRIVATE_KEY')
+        }
+
+        const bridgeContract = new Contract(
+          this.bridgeInfo.bridgeContractAddress,
+          [
+            'function bridgeToken(address token, uint256 amount, uint32 destinationDomain, bytes32 recipient) external payable',
+          ],
+          signer
+        )
+
+        logger.info(
+          `Initiating transfer (attempt ${attempt}/${maxRetries}): ${params.amount.toString()} ${metadata.symbol} from ${params.sourceChain} to ${params.destChain}`
+        )
+
+        const recipientBytes32 = this.addressToBytes32(params.recipient)
+        const destDomain = this.getChainId(params.destChain)
+
+        const tx = await bridgeContract.bridgeToken(tokenAddress, params.amount, destDomain, recipientBytes32) as { hash: string; wait: () => Promise<{ hash: string }> }
+        logger.info(`Bridge transaction submitted: ${tx.hash}`)
+
+        const receipt = await tx.wait()
+
+        // Success - return immediately
+        return {
+          transferId: receipt.hash,
+          hash: tx.hash,
+        }
+      } catch (error) {
+        lastError = error as Error
+        logger.error(`Transfer attempt ${attempt}/${maxRetries} failed:`, error)
+
+        // If this was the last attempt, throw the error
+        if (attempt === maxRetries) {
+          logger.error('All retry attempts exhausted', error)
+          throw error
+        }
+
+        // Exponential backoff: 2^attempt seconds (2s, 4s, 8s)
+        const backoffMs = Math.pow(2, attempt) * 1000
+        logger.info(`Retrying in ${backoffMs / 1000}s...`)
+        await new Promise(resolve => setTimeout(resolve, backoffMs))
       }
-
-      const bridgeContract = new Contract(
-        this.bridgeInfo.bridgeContractAddress,
-        [
-          'function bridgeToken(address token, uint256 amount, uint32 destinationDomain, bytes32 recipient) external payable',
-        ],
-        signer
-      )
-
-      logger.info(
-        `Initiating transfer: ${params.amount.toString()} ${metadata.symbol} from ${params.sourceChain} to ${params.destChain}`
-      )
-
-      const recipientBytes32 = this.addressToBytes32(params.recipient)
-      const destDomain = this.getChainId(params.destChain)
-
-      const tx = await bridgeContract.bridgeToken(tokenAddress, params.amount, destDomain, recipientBytes32) as { hash: string; wait: () => Promise<{ hash: string }> }
-      logger.info(`Bridge transaction submitted: ${tx.hash}`)
-
-      const receipt = await tx.wait()
-
-      return {
-        transferId: receipt.hash,
-        hash: tx.hash,
-      }
-    } catch (error) {
-      logger.error('Transfer initiation failed', error)
-      throw error
     }
+
+    // This should never be reached, but TypeScript needs it
+    throw lastError || new Error('Bridge transfer failed after all retries')
   }
 
   async getTransferStatus(transferId: string): Promise<TransferStatus> {

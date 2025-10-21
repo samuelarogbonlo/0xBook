@@ -78,28 +78,30 @@ export class Rebalancer {
         recipient: userId,
       })
 
-      // Step 5: Update action with transfer ID
-      await db.action.update({
-        where: { id: action.id },
-        data: {
-          transferId: transfer.transferId,
-          txHash: transfer.hash,
-        },
-      })
+      // Step 5: Update action with transfer ID and deduct fee (atomic operation)
+      // Only deduct fee if transfer was successfully initiated
+      await db.$transaction([
+        db.action.update({
+          where: { id: action.id },
+          data: {
+            transferId: transfer.transferId,
+            txHash: transfer.hash,
+          },
+        }),
+        db.user.update({
+          where: { address: userId },
+          data: {
+            pyusdBalance: (pyusdBalance - feeEstimate.fee).toString(),
+          },
+        }),
+      ])
 
-      logger.info(`Transfer initiated: ${transfer.transferId}`)
-
-      // Step 6: Deduct PYUSD cost
-      await db.user.update({
-        where: { address: userId },
-        data: {
-          pyusdBalance: (pyusdBalance - feeEstimate.fee).toString(),
-        },
-      })
+      logger.info(`Transfer initiated: ${transfer.transferId}, fee deducted: ${formatPYUSD(feeEstimate.fee)}`)
 
       return action.id
     } catch (error) {
       logger.error(`Rebalance failed for ${userId}`, error)
+      // No fee deduction on failure - transaction rolled back automatically
       throw error
     }
   }

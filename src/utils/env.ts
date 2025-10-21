@@ -22,8 +22,15 @@ const envSchema = z.object({
   PORT: z.string().default('3000'),
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
   LOG_LEVEL: z.enum(['error', 'warn', 'info', 'debug']).default('info'),
+  // Fee configuration
+  ETH_TO_PYUSD_RATE: z.string().default('2500'),
+  AVAIL_BRIDGE_FEE_ETH: z.string().default('0.001'),
+  // Demo mode configuration
   DEMO_MODE: z.enum(['true', 'false']).default('false'),
   DEMO_WALLET: z.string().optional(),
+  DEMO_HEALTH_FACTOR: z.string().default('1.2'),
+  DEMO_TARGET_HF: z.string().default('1.5'),
+  DEMO_AMOUNT_USD: z.string().default('5.0'),
 })
 
 export type Env = z.infer<typeof envSchema>

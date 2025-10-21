@@ -42,7 +42,7 @@ export function calculateLiquidationProbability(
   // Using log-normal distribution: ln(HF_t / HF_0) ~ N((μ - σ²/2)t, σ²t)
   const logRatio = Math.log(1.0 / currentHF) // ln(liquidation_HF / current_HF)
   const mean = (drift - 0.5 * volatility ** 2) * timeYears
-  const stdDev = volatility * Math.sqrt(timeYears)
+  const stdDev = Math.max(volatility * Math.sqrt(timeYears), 1e-10) // Guard against division by zero
 
   // Z-score: how many standard deviations away is liquidation
   const zScore = (logRatio - mean) / stdDev

@@ -11,6 +11,8 @@ const logger = createComponentLogger('monitor')
 export class PositionMonitor {
   private intervalMs: number
   private intervalId?: NodeJS.Timeout
+  private errorCounts: Map<string, number> = new Map()
+  private backoffTimers: Map<string, number> = new Map()
 
   constructor(intervalMs = 30_000) {
     this.intervalMs = intervalMs
@@ -54,6 +56,13 @@ export class PositionMonitor {
   }
 
   private async monitorUser(userAddress: string, riskTolerance: RiskTolerance) {
+    // Check if user is in backoff period
+    const backoffUntil = this.backoffTimers.get(userAddress)
+    if (backoffUntil && Date.now() < backoffUntil) {
+      logger.debug(`User ${userAddress} in backoff period, skipping`)
+      return
+    }
+
     try {
       // Fetch positions from Aave
       const positions = await aaveAdapter.getAllUserPositions(userAddress)
@@ -70,21 +79,58 @@ export class PositionMonitor {
       for (const position of positions) {
         let assessment = riskCalculator.assessRisk(position, riskTolerance, positions)
 
+        // Calculate GBM probability for enhanced risk assessment
+        const gbmAssessment = riskCalculator.assessRiskWithGBM(position, 0.5) // 50% volatility assumption
+        logger.debug(
+          `GBM Risk for ${userAddress} on ${position.chain}: ` +
+          `24h prob=${(gbmAssessment.liquidationProbability24h * 100).toFixed(2)}%, ` +
+          `7d prob=${(gbmAssessment.liquidationProbability7d * 100).toFixed(2)}%, ` +
+          `level=${gbmAssessment.riskLevel.level}`
+        )
+
+        // Use GBM to enhance decision-making: trigger if high liquidation probability
+        if (gbmAssessment.liquidationProbability7d > 0.3 && assessment.action === 'MONITOR') {
+          logger.warn(
+            `GBM override: High liquidation probability (${(gbmAssessment.liquidationProbability7d * 100).toFixed(1)}%) ` +
+            `for ${userAddress} on ${position.chain}, escalating to PREVENTIVE_REBALANCE`
+          )
+          const sourceChain = riskCalculator.selectSourceChain(positions, position.chain)
+          if (sourceChain) {
+            assessment = {
+              action: 'PREVENTIVE_REBALANCE',
+              healthFactor: position.healthFactor,
+              targetHealthFactor: 2.0,
+              sourceChain,
+              requiredCollateralUSD: riskCalculator.calculateRequiredCollateralUSD(
+                position.healthFactor,
+                2.0,
+                position.collateral.valueUSD,
+                position.debt.valueUSD,
+                position.liquidationThreshold
+              ),
+            }
+          }
+        }
+
         // Demo mode override: inject fake low health factor for demonstration
         const env = getEnv()
         if (env.DEMO_MODE === 'true' && env.DEMO_WALLET && userAddress.toLowerCase() === env.DEMO_WALLET.toLowerCase()) {
-          logger.info(`[DEMO MODE] Injecting fake low health factor for ${userAddress} on ${position.chain}`)
+          const demoHF = parseFloat(env.DEMO_HEALTH_FACTOR)
+          const demoTargetHF = parseFloat(env.DEMO_TARGET_HF)
+          const demoAmountUSD = parseFloat(env.DEMO_AMOUNT_USD)
+
+          logger.info(`[DEMO MODE] Injecting fake HF=${demoHF} for ${userAddress} on ${position.chain}`)
 
           // Find source chain with collateral (must be different from current position)
-          const sourcePosition = positions.find(p => p.chain !== position.chain && p.collateral.valueUSD > 5)
+          const sourcePosition = positions.find(p => p.chain !== position.chain && p.collateral.valueUSD > demoAmountUSD)
 
           if (sourcePosition) {
             assessment = {
               action: 'URGENT_REBALANCE',
-              healthFactor: 1.2, // Fake low HF
-              targetHealthFactor: 1.5, // Target to reach
+              healthFactor: demoHF,
+              targetHealthFactor: demoTargetHF,
               sourceChain: sourcePosition.chain,
-              requiredCollateralUSD: 5.0, // Small amount for demo
+              requiredCollateralUSD: demoAmountUSD,
             }
           }
         }
@@ -101,8 +147,27 @@ export class PositionMonitor {
           await this.handlePreventiveRebalance(userAddress, position, assessment)
         }
       }
+
+      // Success - reset error count and backoff
+      this.errorCounts.set(userAddress, 0)
+      this.backoffTimers.delete(userAddress)
     } catch (error) {
       logger.error(`Failed to monitor user ${userAddress}`, error)
+
+      // Increment error count
+      const errorCount = (this.errorCounts.get(userAddress) || 0) + 1
+      this.errorCounts.set(userAddress, errorCount)
+
+      // Calculate exponential backoff: 30s, 60s, 120s, 240s (max 4 minutes)
+      const backoffMs = Math.min(this.intervalMs * Math.pow(2, errorCount - 1), 240_000)
+      const backoffUntil = Date.now() + backoffMs
+
+      this.backoffTimers.set(userAddress, backoffUntil)
+
+      logger.warn(
+        `User ${userAddress} monitoring failed (${errorCount} consecutive errors), ` +
+        `backing off for ${backoffMs / 1000}s`
+      )
     }
   }
 
