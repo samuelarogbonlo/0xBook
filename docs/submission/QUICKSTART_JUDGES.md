@@ -57,6 +57,8 @@ npx hardhat run scripts/benchmark-parallel-execution.js
 
 **Demonstrates:** Transaction batch generation, storage-slot parallelism, conflict-free counters
 
+**Note:** This generates raw benchmark data. See [BENCHMARK_RESULTS.md](../../BENCHMARK_RESULTS.md) for detailed analysis
+
 ---
 
 ## Run Tests (30 seconds)
