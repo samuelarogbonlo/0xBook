@@ -20,7 +20,8 @@ describe("OrderBook", function () {
     orderBook = await OrderBook.deploy(
       await weth.getAddress(),
       await usdc.getAddress(),
-      6 // USDC decimals
+      18, // base (WETH) decimals
+      6   // quote (USDC) decimals
     );
 
     // Mint tokens to traders

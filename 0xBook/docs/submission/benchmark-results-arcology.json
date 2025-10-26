@@ -1,0 +1,36 @@
+{
+  "timestamp": "2025-10-26T10:36:05.400Z",
+  "chainId": "118",
+  "u256CumulativeActive": true,
+  "benchmarks": {
+    "storageLevelParallelism": {
+      "ordersSubmitted": 20,
+      "successCount": 20,
+      "failCount": 0,
+      "elapsedSeconds": 2.7,
+      "tps": 7.41,
+      "successRate": 100
+    },
+    "conflictFreeCounters": {
+      "testSize": 10,
+      "counterBefore": "173",
+      "counterAfter": "183",
+      "increment": 10,
+      "expectedIncrement": 10,
+      "accurate": true,
+      "successfulTxs": 10,
+      "elapsedSeconds": 3.18,
+      "tps": 3.15
+    },
+    "heavyContentionTest": {
+      "testSize": 100,
+      "description": "100 orders at same price level",
+      "successCount": 100,
+      "failCount": 0,
+      "successRate": 100,
+      "conflictRate": 0,
+      "elapsedSeconds": 4.28,
+      "tps": 23.38
+    }
+  }
+}

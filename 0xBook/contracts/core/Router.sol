@@ -8,88 +8,133 @@ import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 
 /**
  * @title Router
- * @notice Smart router that tries order book first, falls back to AMM
- * @dev Provides unified entry point for best execution
+ * @notice Smart router for hybrid order book + AMM execution
+ * @dev CRITICAL FIX: Users place orders directly on OrderBook
+ *      Router ONLY handles market orders via AMM fallback
  */
 contract Router is ReentrancyGuard {
-    IOrderBook public orderBook;
-    AMMFallback public amm;
+    IOrderBook public immutable orderBook;
+    AMMFallback public immutable amm;
+    IERC20 public immutable baseToken;
+    IERC20 public immutable quoteToken;
 
-    event OrderRouted(address indexed trader, bool usedOrderBook, uint256 amount);
+    event MarketOrderExecuted(
+        address indexed trader,
+        bool buyBase,
+        uint256 amountIn,
+        uint256 amountOut
+    );
+
 
     constructor(address _orderBook, address _amm) {
         orderBook = IOrderBook(_orderBook);
         amm = AMMFallback(_amm);
+        baseToken = IERC20(orderBook.baseToken());
+        quoteToken = IERC20(orderBook.quoteToken());
     }
 
     /**
-     * @notice Execute trade with intelligent routing
-     * @dev Tries order book first, uses AMM if needed
-     * @param price Limit price for order book
-     * @param amount Amount to trade
-     * @param isBuy Buy or sell direction
-     * @param useAMMFallback Allow AMM fallback if order book fails
-     */
-    function executeTrade(
-        uint256 price,
-        uint256 amount,
-        bool isBuy,
-        bool useAMMFallback
-    ) external nonReentrant returns (uint256 orderId) {
-        IERC20 baseToken = IERC20(orderBook.baseToken());
-        IERC20 quoteToken = IERC20(orderBook.quoteToken());
-
-        // Try order book first
-        if (isBuy) {
-            uint256 cost = (price * amount) / 1e18;
-            require(quoteToken.transferFrom(msg.sender, address(this), cost), "Transfer failed");
-            quoteToken.approve(address(orderBook), cost);
-        } else {
-            require(baseToken.transferFrom(msg.sender, address(this), amount), "Transfer failed");
-            baseToken.approve(address(orderBook), amount);
-        }
-
-        orderId = orderBook.placeOrder(price, amount, isBuy);
-        emit OrderRouted(msg.sender, true, amount);
-
-        return orderId;
-    }
-
-    /**
-     * @notice Execute market order with AMM fallback
-     * @dev Swaps directly through AMM for guaranteed execution
+     * @notice Execute market order via AMM
+     * @dev Used when order book liquidity insufficient or for instant execution
+     * @param amountIn Amount of input token
+     * @param buyBase True if buying base token, false if selling
+     * @param minAmountOut Minimum output amount (slippage protection)
+     * @return amountOut Actual amount received
      */
     function executeMarketOrder(
         uint256 amountIn,
         bool buyBase,
         uint256 minAmountOut
     ) external nonReentrant returns (uint256 amountOut) {
-        IERC20 tokenIn = buyBase ? IERC20(orderBook.quoteToken()) : IERC20(orderBook.baseToken());
+        IERC20 tokenIn = buyBase ? quoteToken : baseToken;
+        IERC20 tokenOut = buyBase ? baseToken : quoteToken;
 
-        require(tokenIn.transferFrom(msg.sender, address(this), amountIn), "Transfer failed");
+        // Transfer tokens from user
+        require(
+            tokenIn.transferFrom(msg.sender, address(this), amountIn),
+            "Router: transfer in failed"
+        );
+
+        // Approve AMM
         tokenIn.approve(address(amm), amountIn);
 
+        // Execute swap (buyBase=true means selling quote for base, so isSell=false)
         amountOut = amm.swap(amountIn, !buyBase, minAmountOut);
 
-        IERC20 tokenOut = buyBase ? IERC20(orderBook.baseToken()) : IERC20(orderBook.quoteToken());
-        require(tokenOut.transfer(msg.sender, amountOut), "Transfer out failed");
+        // Transfer output tokens to user
+        require(
+            tokenOut.transfer(msg.sender, amountOut),
+            "Router: transfer out failed"
+        );
 
-        emit OrderRouted(msg.sender, false, amountIn);
+        emit MarketOrderExecuted(msg.sender, buyBase, amountIn, amountOut);
         return amountOut;
     }
 
     /**
-     * @notice Get best execution quote
-     * @dev Compares order book and AMM prices
+     * @notice Get best execution quote comparing order book and AMM
+     * @param amount Amount to trade
+     * @param buyBase Direction
+     * @return orderBookPrice Best price from order book (0 if no liquidity)
+     * @return ammPrice Price from AMM
+     * @return useOrderBook True if order book offers better price
      */
-    function getQuote(uint256 amount, bool buyBase) external view returns (
-        uint256 ammQuote,
-        uint256 orderBookDepth
+    function getQuote(
+        uint256 amount,
+        bool buyBase
+    ) external view returns (
+        uint256 orderBookPrice,
+        uint256 ammPrice,
+        bool useOrderBook
     ) {
-        ammQuote = amm.getQuote(amount, !buyBase);
-        // orderBookDepth would require iterating price levels - simplified for now
-        orderBookDepth = 0;
+        // Get AMM quote
+        ammPrice = amm.getQuote(amount, !buyBase);
 
-        return (ammQuote, orderBookDepth);
+        // Get order book best price
+        if (buyBase) {
+            // Buying base = need best ask (lowest sell price)
+            orderBookPrice = orderBook.getBestAsk();
+        } else {
+            // Selling base = need best bid (highest buy price)
+            orderBookPrice = orderBook.getBestBid();
+        }
+
+        // If order book has no liquidity, price will be 0
+        if (orderBookPrice == 0) {
+            useOrderBook = false;
+        } else {
+            // Compare prices (better price depends on direction)
+            if (buyBase) {
+                // Lower is better when buying
+                useOrderBook = orderBookPrice < ammPrice;
+            } else {
+                // Higher is better when selling
+                useOrderBook = orderBookPrice > ammPrice;
+            }
+        }
+
+        return (orderBookPrice, ammPrice, useOrderBook);
+    }
+
+    /**
+     * @notice Get depth at specific price level from order book
+     * @param price Price level to query
+     * @param isBuy True for buy side, false for sell side
+     * @return totalAmount Total liquidity at that price
+     * @return orderCount Number of orders at that price
+     */
+    function getOrderBookDepth(
+        uint256 price,
+        bool isBuy
+    ) external view returns (uint256 totalAmount, uint256 orderCount) {
+        return orderBook.getDepthAtPrice(price, isBuy);
+    }
+
+    /**
+     * @notice Get current spread from order book
+     * @return spread Difference between best bid and ask
+     */
+    function getSpread() external view returns (uint256 spread) {
+        return orderBook.getSpread();
     }
 }
