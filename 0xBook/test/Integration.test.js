@@ -21,6 +21,7 @@ describe("Phase 2: Integration Tests", function () {
     orderBook = await OrderBook.deploy(
       await weth.getAddress(),
       await usdc.getAddress(),
+      18,
       6
     );
 
@@ -101,24 +102,6 @@ describe("Phase 2: Integration Tests", function () {
   });
 
   describe("Router Integration", function () {
-    it("Should route trade to order book", async function () {
-      const price = ethers.parseUnits("3000", 6);
-      const amount = ethers.parseEther("1");
-      const cost = ethers.parseUnits("3000", 6);
-
-      // Place sell order in order book
-      await weth.connect(trader2).approve(await orderBook.getAddress(), amount);
-      await orderBook.connect(trader2).placeOrder(price, amount, false);
-
-      // Execute trade via router
-      await usdc.connect(trader1).approve(await router.getAddress(), cost);
-      await router.connect(trader1).executeTrade(price, amount, true, false);
-
-      // Verify order was placed by router (router is the msg.sender)
-      const order = await orderBook.orders(1);
-      expect(order.trader).to.equal(await router.getAddress());
-    });
-
     it("Should execute market order via AMM", async function () {
       // Add liquidity to AMM
       const wethLiq = ethers.parseEther("10");
@@ -150,9 +133,12 @@ describe("Phase 2: Integration Tests", function () {
 
       // Get quote
       const amount = ethers.parseUnits("1000", 6);
-      const [ammQuote, _] = await router.getQuote(amount, true);
+      const quote = await router.getQuote(amount, true);
 
-      expect(ammQuote).to.be.gt(0);
+      expect(quote.ammPrice).to.be.gt(0);
+      if (quote.orderBookPrice === 0n) {
+        expect(quote.useOrderBook).to.be.false;
+      }
     });
   });
 

@@ -20,4 +20,13 @@ interface IOrderBook {
 
     function baseToken() external view returns (address);
     function quoteToken() external view returns (address);
+
+    function getBestBid() external view returns (uint256);
+    function getBestAsk() external view returns (uint256);
+    function getDepthAtPrice(uint256 price, bool isBuy) external view returns (uint256 totalAmount, uint256 orderCount);
+    function getSpread() external view returns (uint256);
+
+    function getTotalVolume() external view returns (uint256);
+    function getTotalTrades() external view returns (uint256);
+    function getTotalOrdersPlaced() external view returns (uint256);
 }

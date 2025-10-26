@@ -20,6 +20,7 @@ describe("OrderBook - Extended Functions", function () {
     orderBook = await OrderBook.deploy(
       await weth.getAddress(),
       await usdc.getAddress(),
+      18,
       6
     );
 

@@ -1,6 +1,0 @@
-Parallel Execution Benchmark Results
-=====================================
-
-Sequential: 1500.00s @ 0.67 TPS
-Parallel:   15.00s @ 66.67 TPS
-Speedup:    100.0x
