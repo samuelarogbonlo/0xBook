@@ -1,0 +1,27 @@
+{
+  "name": "0xbook-dex",
+  "version": "1.0.0",
+  "description": "On-chain order book DEX on Arcology Network",
+  "scripts": {
+    "test": "hardhat test",
+    "compile": "hardhat compile",
+    "deploy": "hardhat run scripts/deploy/deploy.js",
+    "node": "hardhat node"
+  },
+  "keywords": [
+    "dex",
+    "orderbook",
+    "arcology",
+    "parallel"
+  ],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "@nomicfoundation/hardhat-toolbox": "^4.0.0",
+    "hardhat": "^2.19.0"
+  },
+  "dependencies": {
+    "@arcologynetwork/concurrentlib": "^2.2.1",
+    "@openzeppelin/contracts": "^4.9.0"
+  }
+}
